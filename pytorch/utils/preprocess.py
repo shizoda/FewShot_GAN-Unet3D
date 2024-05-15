@@ -4,7 +4,7 @@ import nibabel as nib
 import numpy as np
 import shutil
 from nipype.interfaces.ants import N4BiasFieldCorrection
-from sklearn.feature_extraction.image import extract_patches as sk_extract_patches
+from sklearn.feature_extraction.image import extract_patches_2d as sk_extract_patches
 from sklearn.utils import shuffle
 import scipy.misc
 
@@ -25,7 +25,11 @@ def read_data(case_idx, input_name, loc):
 
 def read_vol(case_idx, input_name, dir):
     image_data = read_data(case_idx, input_name, dir)
-    return image_data.get_data()
+    # return image_data.get_data()
+    arr = np.asanyarray(image_data.dataobj)
+    if len(arr.shape) == 4 and arr.shape[3] == 1:
+        arr = arr[:, :, :, 0]
+    return arr
 
 def correct_bias(in_file, out_file):
     correct = N4BiasFieldCorrection()

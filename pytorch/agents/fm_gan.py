@@ -237,7 +237,9 @@ class FMGAN_Model(BaseAgent):
         lab2d=np.reshape(whole_vol,(whole_vol.shape[0]*vol_shape_x*vol_shape_y*vol_shape_z))
 
         classes = list(range(0, self.config.num_classes))
-        F1_score = f1_score(lab2d, pred2d, classes, average=None)
+        # F1_score = f1_score(lab2d, pred2d, classes, average=None)
+        F1_score = f1_score(lab2d, pred2d, labels=classes, average=None) # Avoid TypeError: too many positional arguments
+
         print("Validation Dice Coefficient.... ")
         print("Background:",F1_score[0])
         print("CSF:",F1_score[1])

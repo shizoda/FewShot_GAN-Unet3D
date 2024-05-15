@@ -5,13 +5,14 @@ import numpy as np
 import SimpleITK as sitk
 import shutil
 from nipype.interfaces.ants import N4BiasFieldCorrection
-from sklearn.feature_extraction.image import extract_patches as sk_extract_patches
+from sklearn.feature_extraction.image import extract_patches_2d as sk_extract_patches
 from sklearn.utils import shuffle
-import tensorflow as tf
+
 import scipy.misc
 #import pdb
 
-F = tf.app.flags.FLAGS
+# import tensorflow as tf
+# F = tf.app.flags.FLAGS
 
 
 seed = 7
@@ -46,6 +47,24 @@ def correct_bias(in_file, out_file):
     done = correct.run()
     return done.outputs.output_image
 
+def relabel_array(arr):
+    # 元のラベルと新しいラベルのマッピングを辞書で定義
+    label_map = {0: 0, 10: 1, 150: 2,  250: 3}
+    
+    # ベクトル化関数を使用して、配列の各要素にマッピングを適用
+    def map_label(x):
+        if x in label_map:
+            return label_map[x]
+        else:
+            print(f"[Warning] Label {x} not found in label_map")
+            return x
+    
+    vectorized_relabel = np.vectorize(map_label)
+    
+    # 新しいラベルに変換された配列を返す
+    return vectorized_relabel(arr)
+
+
 def normalise(case_idx, input_name, in_dir, out_dir,copy=False):
 	set_name = get_set_name(case_idx)
 	image_in_path = get_filename(set_name, case_idx, input_name, in_dir)
@@ -54,6 +73,14 @@ def normalise(case_idx, input_name, in_dir, out_dir,copy=False):
 		shutil.copy(image_in_path, image_out_path)
 	else:
 		correct_bias(image_in_path, image_out_path)
+        
+	if image_out_path.find('label')>=0:
+		image = nib.load(image_out_path)
+		image_data = np.asanyarray(image.dataobj)
+		image_data = relabel_array(image_data)
+		image = nib.Nifti1Image(image_data.astype(np.uint8), image.affine)
+		nib.save(image, image_out_path)
+
 	print(image_in_path + " done.")
 
 
@@ -247,27 +274,42 @@ def preprocess_dynamic_unlab( dir,extraction_step,patch_shape,num_images_trainin
     return x
 
 
-def preprocess_static( org_dir, prepro_dir, dataset="labeled", overwrite=False):
+
+
+def preprocess_static(org_dir, prepro_dir, dataset="labeled", overwrite=False):
     if not os.path.exists(prepro_dir):
         os.makedirs(prepro_dir)
+        
     for subject_folder in glob.glob(os.path.join(org_dir, "*", "*")):
         if os.path.isdir(subject_folder):
             subject = os.path.basename(subject_folder)
             new_subject_folder = os.path.join(prepro_dir, 
-                os.path.basename(os.path.dirname(subject_folder)),subject)
+                os.path.basename(os.path.dirname(subject_folder)), subject)
             if not os.path.exists(new_subject_folder) or overwrite:
                 if not os.path.exists(new_subject_folder):
                     os.makedirs(new_subject_folder)
-    if(dataset=="labeled"):
-        for case_idx in range(1, 11) :
-            normalise(case_idx, 'T1',org_dir,prepro_dir)
-            normalise(case_idx, 'T2',org_dir,prepro_dir)
-            normalise(case_idx, 'label',org_dir,prepro_dir,
-                           copy=True)
+    
+    def process_case(case_idx, dataset_type):
+        if dataset_type == "labeled":
+            normalise(case_idx, 'T1', org_dir, prepro_dir)
+            normalise(case_idx, 'T2', org_dir, prepro_dir)
+            normalise(case_idx, 'label', org_dir, prepro_dir, copy=True)
+        else:
+            normalise(case_idx, 'T1', org_dir, prepro_dir)
+            normalise(case_idx, 'T2', org_dir, prepro_dir)
+    
+    if dataset == "labeled":
+        case_indices = range(1, 11)
     else:
-        for case_idx in range(11, 24) :
-            normalise(case_idx, 'T1',org_dir,prepro_dir)
-            normalise(case_idx, 'T2',org_dir,prepro_dir)
+        case_indices = range(11, 24)
+    
+    
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor() as executor:
+        futures = [executor.submit(process_case, case_idx, dataset) for case_idx in case_indices]
+        for future in futures:
+            future.result()  # Catch exceptions here
+
             
 """
 dataset class for preparing training data of basic U-Net
@@ -333,3 +375,22 @@ class dataset_badGAN(object):
 
 
 #preprocess_static( actual_data_directory, preprocesses_data_directory, overwrite=True)
+'''
+if __name__ == "__main__":
+    input_path = "../data/iSEG"
+    output_path = "../data/iSEG_preprocessed"
+    
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = [
+            executor.submit(preprocess_static, input_path, output_path, "labeled"),
+            executor.submit(preprocess_static, input_path, output_path, "unlabeled")
+        ]
+        # 全てのタスクが完了するのを待つ
+        concurrent.futures.wait(futures)
+'''
+if __name__ == "__main__":
+    input_path = "../data/iSEG"
+    output_path = "../data/iSEG_preprocessed"
+    preprocess_static(input_path, output_path, "labeled")
